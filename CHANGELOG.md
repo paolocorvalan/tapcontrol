@@ -4,6 +4,12 @@ Acá queda el registro de todos los cambios importantes del sistema, en orden, c
 
 ---
 
+## v1.7.0 — 10/07/2026
+- La venta ahora se imprime automáticamente al confirmar el pago (ya no hace falta tocar "Imprimir" a mano).
+- Se saca por completo el respaldo de impresión por Windows: si el servidor de impresión local no está disponible, la app avisa con un mensaje claro en vez de abrir el diálogo de Windows en silencio.
+- El servidor de impresión local (`print-server.js`) ahora muestra en su ventana un registro (log) de cada ticket impreso, con hora.
+- Título "✓ Venta realizada" más grande y destacado en la pantalla de confirmación de venta.
+
 ## v1.6.0 — 10/07/2026
 - Se agrega este control de versiones: número de versión visible en la pantalla de inicio + este archivo de historial.
 

@@ -29,6 +29,28 @@ async function imprimirDirecto(lines, cortar = true) {
   }
 }
 
+// Arma las líneas del ticket de venta, listas para mandar al servidor de impresión.
+function construirLineasTicketVenta(venta) {
+  const L = [];
+  L.push({ text: "TAP CONTROL", bold: true, align: "center" });
+  L.push({ text: "Comprobante de venta", align: "center" });
+  L.push({ text: `Ticket N ${String(venta.numero ?? "-").padStart(6, "0")}`, bold: true, align: "center" });
+  L.push({ text: "--------------------------------" });
+  L.push({ text: `Fecha: ${fmtDateTime(venta.fecha)}` });
+  L.push({ text: `Operador: ${venta.operador}` });
+  L.push({ text: `Pago: ${venta.metodoPago}` });
+  L.push({ text: "--------------------------------" });
+  venta.items.forEach((i) => {
+    L.push({ text: i.nombre });
+    L.push({ text: `  ${i.qty} x ${fmtMoney(i.precioUnit, venta.moneda)}  =  ${fmtMoney(i.subtotal, venta.moneda)}` });
+  });
+  L.push({ text: "--------------------------------" });
+  L.push({ text: `TOTAL: ${fmtMoney(venta.total, venta.moneda)}`, bold: true, big: true });
+  L.push({ text: "" });
+  L.push({ text: "Gracias por su compra!", align: "center" });
+  return L;
+}
+
 // Achica una foto (File) y la devuelve como texto base64 listo para guardar.
 // maxDim = tamaño máximo en píxeles del lado más largo. quality = calidad JPG (0 a 1).
 function resizeImageToBase64(file, maxDim = 220, quality = 0.6) {
@@ -72,7 +94,7 @@ const SEED_PRODUCTS = [
 
 // ---------- Firestore wrapper (colección "tapcontrol", un doc por lista) ----------
 const coll = () => db.collection("tapcontrol");
-const APP_VERSION = "1.6.0";
+const APP_VERSION = "1.7.0";
 const APP_VERSION_FECHA = "10/07/2026";
 function persist(docName, items) {
   return coll().doc(docName).set({ items });
@@ -269,6 +291,7 @@ function App() {
           onVenta={async (venta) => { await persistVentas([...ventas, venta]); showToast("Venta registrada"); }}
           onMovimiento={async (mov) => { await persistMovimientos([...movimientos, mov]); showToast("Movimiento registrado"); }}
           onIrACierre={() => setView("cierre")}
+          showToast={showToast}
         />
       )}
 
@@ -290,6 +313,7 @@ function App() {
             showToast("Caja cerrada");
           }}
           onFinalizar={() => { setView("home"); setOperador(""); setActiveCajaId(null); }}
+          showToast={showToast}
         />
       )}
 
@@ -469,7 +493,7 @@ function Apertura({ operador, onBack, onAbrir }) {
 }
 
 // ================= POS =================
-function POS({ caja, productos, onSalir, onVenta, onMovimiento, onIrACierre }) {
+function POS({ caja, productos, onSalir, onVenta, onMovimiento, onIrACierre, showToast }) {
   const [catFiltro, setCatFiltro] = useState("todos");
   const [cart, setCart] = useState([]);
   const [showCheckout, setShowCheckout] = useState(false);
@@ -562,6 +586,8 @@ function POS({ caja, productos, onSalir, onVenta, onMovimiento, onIrACierre }) {
             setShowCheckout(false);
             setTicket(venta);
             setCart([]);
+            const ok = await imprimirDirecto(construirLineasTicketVenta(venta));
+            if (!ok) showToast("⚠️ No se pudo imprimir. Revisá que el servidor de impresión esté prendido.");
           }}
         />
       )}
@@ -573,7 +599,7 @@ function POS({ caja, productos, onSalir, onVenta, onMovimiento, onIrACierre }) {
         />
       )}
 
-      {ticket && <TicketVenta venta={ticket} caja={caja} onClose={() => setTicket(null)} />}
+      {ticket && <TicketVenta venta={ticket} caja={caja} onClose={() => setTicket(null)} showToast={showToast} />}
     </div>
   );
 }
@@ -642,35 +668,14 @@ function MovimientoModal({ onClose, onConfirm }) {
   );
 }
 
-function TicketVenta({ venta, caja, onClose }) {
-  const lineasTicket = () => {
-    const L = [];
-    L.push({ text: "TAP CONTROL", bold: true, align: "center" });
-    L.push({ text: "Comprobante de venta", align: "center" });
-    L.push({ text: `Ticket N ${String(venta.numero ?? "-").padStart(6, "0")}`, bold: true, align: "center" });
-    L.push({ text: "--------------------------------" });
-    L.push({ text: `Fecha: ${fmtDateTime(venta.fecha)}` });
-    L.push({ text: `Operador: ${venta.operador}` });
-    L.push({ text: `Pago: ${venta.metodoPago}` });
-    L.push({ text: "--------------------------------" });
-    venta.items.forEach((i) => {
-      L.push({ text: i.nombre });
-      L.push({ text: `  ${i.qty} x ${fmtMoney(i.precioUnit, venta.moneda)}  =  ${fmtMoney(i.subtotal, venta.moneda)}` });
-    });
-    L.push({ text: "--------------------------------" });
-    L.push({ text: `TOTAL: ${fmtMoney(venta.total, venta.moneda)}`, bold: true, big: true });
-    L.push({ text: "" });
-    L.push({ text: "Gracias por su compra!", align: "center" });
-    return L;
-  };
-
-  const imprimir = async () => {
-    const ok = await imprimirDirecto(lineasTicket());
-    if (!ok) window.print();
+function TicketVenta({ venta, caja, onClose, showToast }) {
+  const reimprimir = async () => {
+    const ok = await imprimirDirecto(construirLineasTicketVenta(venta));
+    showToast(ok ? "Ticket reenviado a la impresora" : "⚠️ No se pudo imprimir. Revisá que el servidor de impresión esté prendido.");
   };
 
   return (
-    <ModalWrap onClose={onClose} title="Venta confirmada">
+    <ModalWrap onClose={onClose} title="✓ Venta realizada" big>
       <div className="print-area" style={styles.ticket}>
         <div style={{ textAlign: "center", fontWeight: 700 }}>TAP CONTROL</div>
         <div style={{ textAlign: "center", fontSize: 11 }}>Comprobante de venta</div>
@@ -691,7 +696,7 @@ function TicketVenta({ venta, caja, onClose }) {
         <div style={{ textAlign: "center", fontSize: 11, marginTop: 8 }}>¡Gracias por su compra!</div>
       </div>
       <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
-        <button style={styles.secondaryButton} onClick={imprimir}>🖨 Imprimir</button>
+        <button style={styles.secondaryButton} onClick={reimprimir}>🖨 Reimprimir</button>
         <button style={styles.primaryButton} onClick={onClose}>Nueva venta</button>
       </div>
     </ModalWrap>
@@ -699,7 +704,7 @@ function TicketVenta({ venta, caja, onClose }) {
 }
 
 // ================= CIERRE DE CAJA =================
-function Cierre({ caja, ventas, movimientos, onBack, onCerrar, onFinalizar }) {
+function Cierre({ caja, ventas, movimientos, onBack, onCerrar, onFinalizar, showToast }) {
   const [cerrada, setCerrada] = useState(caja.estado === "cerrada");
   const [contadoGs, setContadoGs] = useState("");
   const [contadoBrl, setContadoBrl] = useState("");
@@ -775,7 +780,7 @@ function Cierre({ caja, ventas, movimientos, onBack, onCerrar, onFinalizar }) {
                     { text: `Contado R$: ${fmtBRL(finalContadoBrl)}` },
                     { text: "" },
                   ]);
-                  if (!ok) window.print();
+                  if (!ok) showToast("⚠️ No se pudo imprimir. Revisá que el servidor de impresión esté prendido.");
                 }}>
                 🖨 Imprimir
               </button>
@@ -1393,12 +1398,12 @@ function TabBtn({ active, label, emoji, onClick }) {
     }}>{emoji} {label}</button>
   );
 }
-function ModalWrap({ onClose, title, children }) {
+function ModalWrap({ onClose, title, big, children }) {
   return (
     <div style={styles.modalOverlay}>
       <div style={styles.modal}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-          <span style={{ fontWeight: 700, fontSize: 16 }}>{title}</span>
+          <span style={{ fontWeight: 800, fontSize: big ? 24 : 16, color: big ? "#166534" : "#292118" }}>{title}</span>
           <button style={styles.iconButtonSm} onClick={onClose}>✕</button>
         </div>
         {children}
